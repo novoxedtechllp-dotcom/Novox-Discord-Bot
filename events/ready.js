@@ -1,4 +1,4 @@
-const { Events } = require('discord.js');
+const { Events, ActivityType } = require('discord.js');
 const cron = require('node-cron');
 const Parser = require('rss-parser');
 const parser = new Parser();
@@ -8,6 +8,20 @@ module.exports = {
 	once: true,
 	execute(client) {
 		console.log(`Ready! Logged in as ${client.user.tag}`);
+
+		const activities = [
+			{ name: 'student questions | /ask', type: ActivityType.Watching },
+			{ name: 'the Leaderboard | /leaderboard', type: ActivityType.Watching },
+			{ name: 'Tech Updates', type: ActivityType.Watching }
+		];
+		
+		let activityIndex = 0;
+		client.user.setActivity(activities[0]);
+		
+		setInterval(() => {
+			activityIndex = (activityIndex + 1) % activities.length;
+			client.user.setActivity(activities[activityIndex]);
+		}, 30000); // Rotate every 30 seconds
 
 		// Schedule Tech Updates every day at 10:00 AM
 		// Using cron expression '0 10 * * *' (Adjust as needed)
