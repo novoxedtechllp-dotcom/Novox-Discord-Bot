@@ -33,7 +33,11 @@ for (const file of eventFiles) {
 	}
 }
 
+const { connectDB } = require('./database/mongoose');
+
 // Start the keep-alive server
 keepAlive();
 
-client.login(process.env.DISCORD_TOKEN);
+connectDB().then(() => {
+    client.login(process.env.DISCORD_TOKEN);
+});

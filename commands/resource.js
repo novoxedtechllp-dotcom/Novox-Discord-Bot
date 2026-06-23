@@ -1,8 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const fs = require('node:fs');
-const path = require('node:path');
 
-const resourcesPath = path.join(__dirname, '../resources.json');
 
 module.exports = {
 	data: new SlashCommandBuilder()
@@ -53,14 +50,8 @@ module.exports = {
 							{ name: 'Video Editing', value: 'video_editing' }
 						))),
 	async execute(interaction) {
-		let resourcesData = {};
-		if (fs.existsSync(resourcesPath)) {
-			resourcesData = JSON.parse(fs.readFileSync(resourcesPath, 'utf8'));
-		}
-		
+		const { Models } = require('../database/mongoose');
 		const guildId = interaction.guildId;
-		if (!resourcesData[guildId]) resourcesData[guildId] = {};
-
 		const subcommand = interaction.options.getSubcommand();
 		const topic = interaction.options.getString('topic');
 
@@ -68,21 +59,19 @@ module.exports = {
 			const link = interaction.options.getString('link');
 			const description = interaction.options.getString('description');
 
-			if (!resourcesData[guildId][topic]) {
-				resourcesData[guildId][topic] = [];
-			}
-
-			resourcesData[guildId][topic].push({
+			const newResource = new Models.Resource({
+				guildId: guildId,
+				topic: topic,
 				link: link,
 				description: description,
 				addedBy: interaction.user.id
 			});
+			await newResource.save();
 
-			fs.writeFileSync(resourcesPath, JSON.stringify(resourcesData, null, 2));
 			await interaction.reply({ content: `✅ Resource successfully added to the **${topic}** library!`, ephemeral: true });
 
 		} else if (subcommand === 'get') {
-			const topicResources = resourcesData[guildId][topic] || [];
+			const topicResources = await Models.Resource.find({ guildId: guildId, topic: topic });
 
 			if (topicResources.length === 0) {
 				return interaction.reply({ content: `There are currently no resources saved for **${topic}**. Feel free to add some!`, ephemeral: true });

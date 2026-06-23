@@ -1,10 +1,7 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
-const fs = require('node:fs');
-const path = require('node:path');
 const Parser = require('rss-parser');
 
 const parser = new Parser();
-const configPath = path.join(__dirname, '../config.json');
 
 module.exports = {
 	data: new SlashCommandBuilder()
@@ -15,20 +12,17 @@ module.exports = {
 		// Defer the reply since fetching RSS might take a moment
 		await interaction.deferReply({ ephemeral: true });
 
-		let config = {};
-		if (fs.existsSync(configPath)) {
-			config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-		}
+		const { Models } = require('../database/mongoose');
+		
+		const configDoc = await Models.Config.findOne({ guildId: interaction.guildId });
 
-		const guildConfig = config[interaction.guildId];
-		if (!guildConfig || !guildConfig.topics || Object.keys(guildConfig.topics).length === 0) {
+		if (!configDoc || !configDoc.tech_channels || configDoc.tech_channels.size === 0) {
 			return interaction.editReply({ content: 'No tech update channels have been configured for this server. Please run `/setup` first.' });
 		}
 
-		const dataPath = path.join(__dirname, '../data.json');
-		let data = {};
-		if (fs.existsSync(dataPath)) {
-			data = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
+		let dataDoc = await Models.Data.findOne({ id: 'main' });
+		if (!dataDoc) {
+			dataDoc = new Models.Data({ id: 'main', lastPostedUrls: {} });
 		}
 
 		const feeds = {
@@ -45,9 +39,9 @@ module.exports = {
 		let postedCount = 0;
 
 		for (const [topic, feedUrl] of Object.entries(feeds)) {
-			if (!guildConfig.topics[topic]) continue; // Skip if this topic isn't configured for the guild
-
-			const channel = interaction.client.channels.cache.get(guildConfig.topics[topic]);
+			if (!configDoc.tech_channels.get(topic)) continue; // Skip if this topic isn't configured for the guild
+			
+			const channel = interaction.client.channels.cache.get(configDoc.tech_channels.get(topic));
 			if (!channel) continue;
 
 			try {
@@ -56,8 +50,10 @@ module.exports = {
 					let unpostedItems = [];
 					const todayString = new Date().toDateString();
 
+					const lastPostedUrl = dataDoc.lastPostedUrls.get(topic);
+
 					for (const item of feed.items) {
-						if (data.lastPostedUrls && data.lastPostedUrls[topic] === item.link) break;
+						if (lastPostedUrl && lastPostedUrl === item.link) break;
 						
 						if (item.pubDate) {
 							if (new Date(item.pubDate).toDateString() === todayString) {
@@ -69,7 +65,7 @@ module.exports = {
 					}
 
 					// If it's the very first run for this topic and nothing was published today, just post the newest one
-					if (unpostedItems.length === 0 && (!data.lastPostedUrls || !data.lastPostedUrls[topic])) {
+					if (unpostedItems.length === 0 && !lastPostedUrl) {
 						unpostedItems.push(feed.items[0]);
 					}
 
@@ -83,9 +79,8 @@ module.exports = {
 							postedCount++;
 						}
 
-						if (!data.lastPostedUrls) data.lastPostedUrls = {};
 						// The newest item is now the last one in our reversed array
-						data.lastPostedUrls[topic] = unpostedItems[unpostedItems.length - 1].link;
+						dataDoc.lastPostedUrls.set(topic, unpostedItems[unpostedItems.length - 1].link);
 					}
 				}
 			} catch (error) {
@@ -93,7 +88,7 @@ module.exports = {
 			}
 		}
 
-		fs.writeFileSync(dataPath, JSON.stringify(data, null, 2));
+		await dataDoc.save();
 
 		if (postedCount > 0) {
 			await interaction.editReply({ content: `✅ Successfully posted ${postedCount} new tech update(s) to their respective channels!` });

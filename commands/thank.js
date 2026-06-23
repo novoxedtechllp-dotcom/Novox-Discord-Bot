@@ -1,8 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const fs = require('node:fs');
-const path = require('node:path');
 
-const reputationPath = path.join(__dirname, '../reputation.json');
 
 module.exports = {
 	data: new SlashCommandBuilder()
@@ -22,21 +19,36 @@ module.exports = {
 			return interaction.reply({ content: 'You cannot thank a bot!', ephemeral: true });
 		}
 
-		let reputation = {};
-		if (fs.existsSync(reputationPath)) {
-			reputation = JSON.parse(fs.readFileSync(reputationPath, 'utf8'));
+		const { Models } = require('../database/mongoose');
+		const guildId = interaction.guildId;
+
+		let repDoc = await Models.Reputation.findOne({ guildId: guildId, userId: targetUser.id });
+		if (!repDoc) {
+			repDoc = new Models.Reputation({ guildId: guildId, userId: targetUser.id, points: 0, lastThankedBy: {} });
 		}
 
-		const guildId = interaction.guildId;
-		if (!reputation[guildId]) reputation[guildId] = {};
-		if (!reputation[guildId][targetUser.id]) reputation[guildId][targetUser.id] = 0;
+		const now = new Date();
+		if (repDoc.lastThankedBy && repDoc.lastThankedBy.has(interaction.user.id)) {
+			const lastThanked = repDoc.lastThankedBy.get(interaction.user.id);
+			const hoursSinceLastThank = (now - lastThanked) / (1000 * 60 * 60);
+			
+			if (hoursSinceLastThank < 24) {
+				const timeLeft = Math.ceil(24 - hoursSinceLastThank);
+				return interaction.reply({ content: `⏳ You can only thank this person once per day. Try again in **${timeLeft} hours**.`, ephemeral: true });
+			}
+		}
 
-		reputation[guildId][targetUser.id] += 1;
-		fs.writeFileSync(reputationPath, JSON.stringify(reputation, null, 2));
+		if (!repDoc.lastThankedBy) {
+			repDoc.lastThankedBy = new Map();
+		}
+		repDoc.lastThankedBy.set(interaction.user.id, now);
+
+		repDoc.points += 1;
+		await repDoc.save();
 
 		const embed = new EmbedBuilder()
 			.setColor(0xFFD700)
-			.setDescription(`🎉 **${interaction.user.username}** has thanked **${targetUser.username}**!\n\n${targetUser.username} now has **${reputation[guildId][targetUser.id]}** reputation points.`);
+			.setDescription(`🎉 **${interaction.user.username}** has thanked **${targetUser.username}**!\n\n${targetUser.username} now has **${repDoc.points}** reputation points.`);
 
 		await interaction.reply({ embeds: [embed] });
 	},

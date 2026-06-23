@@ -1,8 +1,5 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const fs = require('node:fs');
-const path = require('node:path');
 
-const configPath = path.join(__dirname, '../config.json');
 
 module.exports = {
 	data: new SlashCommandBuilder()
@@ -13,14 +10,14 @@ module.exports = {
 				.setDescription('Which class/course is this feedback about?')
 				.setRequired(true)
 				.addChoices(
-					{ name: 'MERN Stack', value: 'MERN Stack' },
-					{ name: 'Node.js', value: 'Node.js' },
-					{ name: 'Flutter', value: 'Flutter' },
-					{ name: 'UI/UX Design', value: 'UI/UX Design' },
-					{ name: 'AI Gen', value: 'AI Gen' },
-					{ name: 'Digital Marketing', value: 'Digital Marketing' },
-					{ name: 'Graphic Design', value: 'Graphic Design' },
-					{ name: 'Video Editing', value: 'Video Editing' }
+					{ name: 'MERN Stack', value: 'mern' },
+					{ name: 'Node.js', value: 'node' },
+					{ name: 'Flutter', value: 'flutter' },
+					{ name: 'UI/UX Design', value: 'ui_ux' },
+					{ name: 'AI Gen', value: 'ai' },
+					{ name: 'Digital Marketing', value: 'marketing' },
+					{ name: 'Graphic Design', value: 'graphic_design' },
+					{ name: 'Video Editing', value: 'video_editing' }
 				))
 		.addStringOption(option => 
 			option.setName('message')
@@ -30,17 +27,21 @@ module.exports = {
 		const course = interaction.options.getString('course');
 		const message = interaction.options.getString('message');
 
-		let config = {};
-		if (fs.existsSync(configPath)) {
-			config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+		const { Models } = require('../database/mongoose');
+		const configDoc = await Models.Config.findOne({ guildId: interaction.guildId });
+		if (!configDoc || !configDoc.ticket_channels || !configDoc.ticket_channels.get('feedback_admin')) {
+			return interaction.reply({ content: '❌ The admin has not configured a feedback channel yet.', ephemeral: true });
 		}
 
-		const guildConfig = config[interaction.guildId];
-		if (!guildConfig || !guildConfig.topics || !guildConfig.topics.feedback_admin) {
-			return interaction.reply({ content: 'Anonymous feedback is not configured for this server. Admins must run `/setup` first.', ephemeral: true });
+		if (configDoc.student_roles && configDoc.student_roles.get(course)) {
+			const requiredRoleId = configDoc.student_roles.get(course);
+			if (!interaction.member.roles.cache.has(requiredRoleId)) {
+				return interaction.reply({ content: `❌ You must have the <@&${requiredRoleId}> role to send feedback for this course.`, ephemeral: true });
+			}
 		}
 
-		const adminChannel = interaction.client.channels.cache.get(guildConfig.topics.feedback_admin);
+		const adminChannelId = configDoc.ticket_channels.get('feedback_admin');
+		const adminChannel = interaction.client.channels.cache.get(adminChannelId);
 		if (!adminChannel) {
 			return interaction.reply({ content: 'Could not find the configured admin feedback channel.', ephemeral: true });
 		}

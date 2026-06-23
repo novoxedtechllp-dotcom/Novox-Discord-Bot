@@ -1,6 +1,5 @@
 const { SlashCommandBuilder, PermissionFlagsBits, AttachmentBuilder } = require('discord.js');
-const fs = require('node:fs');
-const path = require('node:path');
+
 
 module.exports = {
 	data: new SlashCommandBuilder()
@@ -8,21 +7,30 @@ module.exports = {
 		.setDescription('Export all bot databases as JSON files (Admin only).')
 		.setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 	async execute(interaction) {
-		const files = ['config.json', 'data.json', 'reputation.json', 'resources.json'];
+		await interaction.deferReply({ ephemeral: true });
+		const { Models } = require('../database/mongoose');
+
 		const attachments = [];
 
+		const configData = await Models.Config.find({});
+		const dataData = await Models.Data.find({});
+		const repData = await Models.Reputation.find({});
+		const resData = await Models.Resource.find({});
+
+		const files = [
+			{ name: 'config.json', data: configData },
+			{ name: 'data.json', data: dataData },
+			{ name: 'reputation.json', data: repData },
+			{ name: 'resources.json', data: resData }
+		];
+
 		for (const file of files) {
-			const filePath = path.join(__dirname, '..', file);
-			if (fs.existsSync(filePath)) {
-				const attachment = new AttachmentBuilder(filePath, { name: file });
-				attachments.push(attachment);
-			}
+			const buffer = Buffer.from(JSON.stringify(file.data, null, 2), 'utf-8');
+			attachments.push(new AttachmentBuilder(buffer, { name: file.name }));
 		}
 
-		if (attachments.length === 0) {
-			return interaction.reply({ content: 'No data files found to export.', ephemeral: true });
-		}
+		const replyContent = '📦 **Database Export (MongoDB):**\nHere are the current database collections exported as JSON.\n\n⚠️ **WARNING:** This is an ephemeral message (only visible to you). **You must download and save these files to your device now.** If you dismiss this message, the files will be lost!';
 
-		await interaction.reply({ content: '📦 **Database Export:**\nHere are the current database files.', files: attachments, ephemeral: true });
+		await interaction.editReply({ content: replyContent, files: attachments });
 	},
 };
